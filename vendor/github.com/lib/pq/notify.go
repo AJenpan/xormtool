@@ -174,8 +174,12 @@ func (l *ListenerConn) listenerConnLoop() (err error) {
 			}
 			l.replyChan <- message{t, nil}
 
-		case 'N', 'S':
+		case 'S':
 			// ignore
+		case 'N':
+			if n := l.cn.noticeHandler; n != nil {
+				n(parseError(r))
+			}
 		default:
 			return fmt.Errorf("unexpected message %q from server in listenerConnLoop", t)
 		}
@@ -724,6 +728,9 @@ func (l *Listener) Close() error {
 		l.cn.Close()
 	}
 	l.isClosed = true
+
+	// Unblock calls to Listen()
+	l.reconnectCond.Broadcast()
 
 	return nil
 }

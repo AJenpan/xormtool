@@ -16,9 +16,9 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/go-xorm/core"
-	"github.com/go-xorm/xorm"
 	"github.com/lunny/log"
+	"xorm.io/xorm"
+	"xorm.io/xorm/schemas"
 
 	_ "github.com/denisenkom/go-mssqldb"
 	_ "github.com/go-sql-driver/mysql"
@@ -59,7 +59,7 @@ func printReversePrompt(flag string) {
 }
 
 type Tmpl struct {
-	Tables  []*core.Table
+	Tables  []*schemas.Table
 	Imports map[string]string
 	Models  string
 }
@@ -245,7 +245,7 @@ func runReverse(cmd *Command, args []string) {
 
 			imports := langTmpl.GenImports(tables)
 
-			tbls := make([]*core.Table, 0)
+			tbls := make([]*schemas.Table, 0)
 			for _, table := range tables {
 				//[SWH|+]
 				if prefix != "" {
@@ -273,7 +273,7 @@ func runReverse(cmd *Command, args []string) {
 				source, err = langTmpl.Formater(string(tplcontent))
 				if err != nil {
 					log.Errorf("%v", err)
-					return err
+					source = string(tplcontent)
 				}
 			} else {
 				source = string(tplcontent)
@@ -288,7 +288,7 @@ func runReverse(cmd *Command, args []string) {
 					table.Name = strings.TrimPrefix(table.Name, prefix)
 				}
 				// imports
-				tbs := []*core.Table{table}
+				tbs := []*schemas.Table{table}
 				imports := langTmpl.GenImports(tbs)
 
 				w, err := os.Create(path.Join(genDir, table.Name+ext))
@@ -317,7 +317,7 @@ func runReverse(cmd *Command, args []string) {
 					source, err = langTmpl.Formater(string(tplcontent))
 					if err != nil {
 						log.Errorf("%v-%v", err, string(tplcontent))
-						return err
+						source = string(tplcontent)
 					}
 				} else {
 					source = string(tplcontent)

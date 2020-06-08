@@ -21,7 +21,7 @@ import (
 // Test that go1.1 tag above is included in builds. main.go refers to this definition.
 const go11tag = true
 
-const version = "0.3.0324"
+const version = "0.4.0617"
 
 var supportedDrivers = map[string]string{
 	"mysql":    "github.com/go-sql-driver/mysql",

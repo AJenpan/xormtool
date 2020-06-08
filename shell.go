@@ -5,11 +5,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
-	"github.com/go-xorm/core"
-	"github.com/go-xorm/xorm"
+	"xorm.io/xorm"
+	"xorm.io/xorm/log"
 )
 
 var CmdShell = &Command{
@@ -57,7 +58,7 @@ func runShell(cmd *Command, args []string) {
 	}
 
 	engine.ShowSQL(false)
-	engine.Logger().SetLevel(core.LOG_UNKNOWN)
+	engine.Logger().SetLevel(log.LOG_UNKNOWN)
 
 	err = engine.Ping()
 	if err != nil {
@@ -146,7 +147,7 @@ func runShell(cmd *Command, args []string) {
 				}
 			}
 		} else if lcmd == "show tables" {
-			tables, err := engine.Dialect().GetTables()
+			tables, err := engine.DBMetas()
 			if err != nil {
 				fmt.Println(err)
 			} else {
@@ -203,7 +204,7 @@ func runShell(cmd *Command, args []string) {
 		} else if strings.HasPrefix(lcmd, "columns") {
 			fields := strings.Fields(strings.TrimRight(scmd, ";"))
 			if len(fields) == 2 {
-				_, columns, err := engine.Dialect().GetColumns(fields[1])
+				_, columns, err := engine.Dialect().GetColumns(engine.DB(), context.Background(), fields[1])
 				if err != nil {
 					fmt.Println(err)
 				} else {
@@ -211,7 +212,7 @@ func runShell(cmd *Command, args []string) {
 						fmt.Println("no column in", fields[1])
 					} else {
 						var maxlen int
-						for name, _ := range columns {
+						for name := range columns {
 							if len(name) > maxlen {
 								maxlen = len(name)
 							}
@@ -242,7 +243,7 @@ func runShell(cmd *Command, args []string) {
 		} else if strings.HasPrefix(lcmd, "indexes") {
 			fields := strings.Fields(strings.TrimRight(scmd, ";"))
 			if len(fields) == 2 {
-				indexes, err := engine.Dialect().GetIndexes(fields[1])
+				indexes, err := engine.Dialect().GetIndexes(engine.DB(), context.Background(), fields[1])
 				if err != nil {
 					fmt.Println(err)
 				} else {

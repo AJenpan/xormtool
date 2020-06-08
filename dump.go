@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/go-xorm/core"
-	"github.com/go-xorm/xorm"
+	"xorm.io/xorm"
+	"xorm.io/xorm/log"
 )
 
 var CmdDump = &Command{
@@ -42,7 +42,7 @@ func runDump(cmd *Command, args []string) {
 	}
 
 	engine.ShowSQL(false)
-	engine.Logger().SetLevel(core.LOG_UNKNOWN)
+	engine.Logger().SetLevel(log.LOG_UNKNOWN)
 
 	err = engine.Ping()
 	if err != nil {

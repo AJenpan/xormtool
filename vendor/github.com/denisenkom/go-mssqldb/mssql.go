@@ -13,7 +13,17 @@ import (
 	"reflect"
 	"strings"
 	"time"
+	"unicode"
+
+	"github.com/denisenkom/go-mssqldb/internal/querytext"
 )
+
+// ReturnStatus may be used to return the return value from a proc.
+//
+//   var rs mssql.ReturnStatus
+//   _, err := db.Exec("theproc", &rs)
+//   log.Printf("return status = %d", rs)
+type ReturnStatus int32
 
 var driverInstance = &Driver{processQueryText: true}
 var driverInstanceNoProcess = &Driver{processQueryText: false}
@@ -21,24 +31,19 @@ var driverInstanceNoProcess = &Driver{processQueryText: false}
 func init() {
 	sql.Register("mssql", driverInstance)
 	sql.Register("sqlserver", driverInstanceNoProcess)
-	createDialer = func(p *connectParams) dialer {
-		return tcpDialer{&net.Dialer{KeepAlive: p.keepAlive}}
+	createDialer = func(p *connectParams) Dialer {
+		return netDialer{&net.Dialer{KeepAlive: p.keepAlive}}
 	}
 }
 
-// Abstract the dialer for testing and for non-TCP based connections.
-type dialer interface {
-	Dial(ctx context.Context, addr string) (net.Conn, error)
-}
+var createDialer func(p *connectParams) Dialer
 
-var createDialer func(p *connectParams) dialer
-
-type tcpDialer struct {
+type netDialer struct {
 	nd *net.Dialer
 }
 
-func (d tcpDialer) Dial(ctx context.Context, addr string) (net.Conn, error) {
-	return d.nd.DialContext(ctx, "tcp", addr)
+func (d netDialer) DialContext(ctx context.Context, network string, addr string) (net.Conn, error) {
+	return d.nd.DialContext(ctx, network, addr)
 }
 
 type Driver struct {
@@ -117,6 +122,21 @@ type Connector struct {
 	// SessionInitSQL is optional. The session will be reset even if
 	// SessionInitSQL is empty.
 	SessionInitSQL string
+
+	// Dialer sets a custom dialer for all network operations.
+	// If Dialer is not set, normal net dialers are used.
+	Dialer Dialer
+}
+
+type Dialer interface {
+	DialContext(ctx context.Context, network string, addr string) (net.Conn, error)
+}
+
+func (c *Connector) getDialer(p *connectParams) Dialer {
+	if c != nil && c.Dialer != nil {
+		return c.Dialer
+	}
+	return createDialer(p)
 }
 
 type Conn struct {
@@ -128,7 +148,15 @@ type Conn struct {
 	processQueryText bool
 	connectionGood   bool
 
-	outs map[string]interface{}
+	outs         map[string]interface{}
+	returnStatus *ReturnStatus
+}
+
+func (c *Conn) setReturnStatus(s ReturnStatus) {
+	if c.returnStatus == nil {
+		return
+	}
+	*c.returnStatus = s
 }
 
 func (c *Conn) checkBadConn(err error) error {
@@ -294,12 +322,12 @@ func (d *Driver) open(ctx context.Context, dsn string) (*Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return d.connect(ctx, params)
+	return d.connect(ctx, nil, params)
 }
 
 // connect to the server, using the provided context for dialing only.
-func (d *Driver) connect(ctx context.Context, params connectParams) (*Conn, error) {
-	sess, err := connect(ctx, d.log, params)
+func (d *Driver) connect(ctx context.Context, c *Connector, params connectParams) (*Conn, error) {
+	sess, err := connect(ctx, c, d.log, params)
 	if err != nil {
 		// main server failed, try fail-over partner
 		if params.failOverPartner == "" {
@@ -311,7 +339,7 @@ func (d *Driver) connect(ctx context.Context, params connectParams) (*Conn, erro
 			params.port = params.failOverPort
 		}
 
-		sess, err = connect(ctx, d.log, params)
+		sess, err = connect(ctx, c, d.log, params)
 		if err != nil {
 			// fail-over partner also failed, now fail
 			return nil, err
@@ -319,12 +347,12 @@ func (d *Driver) connect(ctx context.Context, params connectParams) (*Conn, erro
 	}
 
 	conn := &Conn{
+		connector:        c,
 		sess:             sess,
 		transactionCtx:   context.Background(),
 		processQueryText: d.processQueryText,
 		connectionGood:   true,
 	}
-	conn.sess.log = d.log
 
 	return conn, nil
 }
@@ -359,7 +387,7 @@ func (c *Conn) Prepare(query string) (driver.Stmt, error) {
 func (c *Conn) prepareContext(ctx context.Context, query string) (*Stmt, error) {
 	paramCount := -1
 	if c.processQueryText {
-		query, paramCount = parseParams(query)
+		query, paramCount = querytext.ParseParams(query)
 	}
 	return &Stmt{c, query, paramCount, nil}, nil
 }
@@ -369,7 +397,10 @@ func (s *Stmt) Close() error {
 }
 
 func (s *Stmt) SetQueryNotification(id, options string, timeout time.Duration) {
-	to := uint32(timeout / time.Second)
+	// 2.2.5.3.1 Query Notifications Header
+	// https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-tds/e168d373-a7b7-41aa-b6ca-25985466a7e0
+	// Timeout in milliseconds in TDS protocol.
+	to := uint32(timeout / time.Millisecond)
 	if to < 1 {
 		to = 1
 	}
@@ -429,13 +460,13 @@ func (s *Stmt) sendQuery(args []namedValue) (err error) {
 		var params []param
 		if isProc(s.query) {
 			proc.name = s.query
-			params, _, err = s.makeRPCParams(args, 0)
+			params, _, err = s.makeRPCParams(args, true)
 			if err != nil {
 				return
 			}
 		} else {
 			var decls []string
-			params, decls, err = s.makeRPCParams(args, 2)
+			params, decls, err = s.makeRPCParams(args, false)
 			if err != nil {
 				return
 			}
@@ -459,14 +490,60 @@ func isProc(s string) bool {
 	if len(s) == 0 {
 		return false
 	}
-	if s[0] == '[' && s[len(s)-1] == ']' && strings.ContainsAny(s, "\n\r") == false {
-		return true
+	const (
+		outside = iota
+		text
+		escaped
+	)
+	st := outside
+	var rn1, rPrev rune
+	for _, r := range s {
+		rPrev = rn1
+		rn1 = r
+		switch r {
+		// No newlines or string sequences.
+		case '\n', '\r', '\'', ';':
+			return false
+		}
+		switch st {
+		case outside:
+			switch {
+			case unicode.IsSpace(r):
+				return false
+			case r == '[':
+				st = escaped
+				continue
+			case r == ']' && rPrev == ']':
+				st = escaped
+				continue
+			case unicode.IsLetter(r):
+				st = text
+			}
+		case text:
+			switch {
+			case r == '.':
+				st = outside
+				continue
+			case unicode.IsSpace(r):
+				return false
+			}
+		case escaped:
+			switch {
+			case r == ']':
+				st = outside
+				continue
+			}
+		}
 	}
-	return !strings.ContainsAny(s, " \t\n\r;")
+	return true
 }
 
-func (s *Stmt) makeRPCParams(args []namedValue, offset int) ([]param, []string, error) {
+func (s *Stmt) makeRPCParams(args []namedValue, isProc bool) ([]param, []string, error) {
 	var err error
+	var offset int
+	if !isProc {
+		offset = 2
+	}
 	params := make([]param, len(args)+offset)
 	decls := make([]string, len(args))
 	for i, val := range args {
@@ -477,7 +554,7 @@ func (s *Stmt) makeRPCParams(args []namedValue, offset int) ([]param, []string, 
 		var name string
 		if len(val.Name) > 0 {
 			name = "@" + val.Name
-		} else {
+		} else if !isProc {
 			name = fmt.Sprintf("@p%d", val.Ordinal)
 		}
 		params[i+offset].Name = name
@@ -539,9 +616,13 @@ loop:
 			break loop
 		case doneStruct:
 			if token.isError() {
+				cancel()
 				return nil, s.c.checkBadConn(token.getError())
 			}
+		case ReturnStatus:
+			s.c.setReturnStatus(token)
 		case error:
+			cancel()
 			return nil, s.c.checkBadConn(token)
 		}
 	}
@@ -584,6 +665,8 @@ func (s *Stmt) processExec(ctx context.Context) (res driver.Result, err error) {
 			if token.isError() {
 				return nil, token.getError()
 			}
+		case ReturnStatus:
+			s.c.setReturnStatus(token)
 		case error:
 			return nil, token
 		}
@@ -638,6 +721,8 @@ func (rc *Rows) Next(dest []driver.Value) error {
 			if tokdata.isError() {
 				return rc.stmt.c.checkBadConn(tokdata.getError())
 			}
+		case ReturnStatus:
+			rc.stmt.c.setReturnStatus(tokdata)
 		case error:
 			return rc.stmt.c.checkBadConn(tokdata)
 		}
@@ -794,29 +879,6 @@ type Result struct {
 
 func (r *Result) RowsAffected() (int64, error) {
 	return r.rowsAffected, nil
-}
-
-func (r *Result) LastInsertId() (int64, error) {
-	s, err := r.c.Prepare("select cast(@@identity as bigint)")
-	if err != nil {
-		return 0, err
-	}
-	defer s.Close()
-	rows, err := s.Query(nil)
-	if err != nil {
-		return 0, err
-	}
-	defer rows.Close()
-	dest := make([]driver.Value, 1)
-	err = rows.Next(dest)
-	if err != nil {
-		return 0, err
-	}
-	if dest[0] == nil {
-		return -1, errors.New("There is no generated identity value")
-	}
-	lastInsertId := dest[0].(int64)
-	return lastInsertId, nil
 }
 
 var _ driver.Pinger = &Conn{}

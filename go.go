@@ -13,7 +13,8 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/go-xorm/core"
+	"xorm.io/core"
+	"xorm.io/xorm/schemas"
 )
 
 var (
@@ -177,7 +178,7 @@ func formatGo(src string) (string, error) {
 	return string(source), nil
 }
 
-func genGoImports(tables []*core.Table) map[string]string {
+func genGoImports(tables []*schemas.Table) map[string]string {
 	imports := make(map[string]string)
 
 	for _, table := range tables {
@@ -190,9 +191,9 @@ func genGoImports(tables []*core.Table) map[string]string {
 	return imports
 }
 
-func typestring(col *core.Column) string {
+func typestring(col *schemas.Column) string {
 	st := col.SQLType
-	t := core.SQLType2Type(st)
+	t := schemas.SQLType2Type(st)
 	s := t.String()
 	if s == "[]uint8" {
 		return "[]byte"
@@ -200,7 +201,7 @@ func typestring(col *core.Column) string {
 	return s
 }
 
-func tag(table *core.Table, col *core.Column) string {
+func tag(table *schemas.Table, col *schemas.Column) string {
 	isNameId := (mapper.Table2Obj(col.Name) == "Id")
 	isIdPk := isNameId && typestring(col) == "int64"
 

@@ -1,5 +1,5 @@
 
-[English](https://github.com/go-xorm/cmd/blob/master/README.md)
+[English](https://gitea.com/xorm/cmd/blob/master/README.md)
 
 # xorm 工具
 
@@ -7,11 +7,11 @@ xorm 是一组数据库操作命令行工具。
 
 ## 源码安装
 
-`go get github.com/go-xorm/cmd/xorm`
+`go get xorm.io/cmd/xorm`
 
-同时你需要安装如下依赖:
+执行以上命令会安装如下依赖:
 
-* github.com/go-xorm/xorm
+* xorm.io/xorm
 
 * Mysql: [github.com/go-sql-driver/mysql](https://github.com/go-sql-driver/mysql)
 
