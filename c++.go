@@ -12,13 +12,13 @@ import (
 )
 
 var (
-	CPlusTmpl LangTmpl = LangTmpl{
-		template.FuncMap{"Mapper": mapper.Table2Obj,
+	CPlusTmpl = &LangTmpl{
+		Funcs: template.FuncMap{"Mapper": mapper.Table2Obj,
 			"Type":    cPlusTypeStr,
 			"UnTitle": unTitle,
 		},
-		nil,
-		genCPlusImports,
+		Formater:   nil,
+		GenImports: genCPlusImports,
 	}
 )
 

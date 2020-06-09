@@ -19,9 +19,16 @@ type LangTmpl struct {
 	GenImports func([]*schemas.Table) map[string]string
 }
 
+type ReverseFlow interface {
+	Init() error
+	Befer() error
+	Execute() error
+	After() error
+}
+
 var (
 	mapper    = &names.SnakeMapper{}
-	langTmpls = map[string]LangTmpl{
+	langTmpls = map[string]*LangTmpl{
 		"go":   GoLangTmpl,
 		"c++":  CPlusTmpl,
 		"objc": ObjcTmpl,

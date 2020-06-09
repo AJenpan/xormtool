@@ -10,19 +10,19 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"runtime"
 	"strings"
 	"sync"
 	"text/template"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/urfave/cli/v2"
 )
 
 // Test that go1.1 tag above is included in builds. main.go refers to this definition.
 const go11tag = true
 
-const version = "0.4.0617"
-
+var version = "0.5.0"
 var supportedDrivers = map[string]string{
 	"mysql":    "github.com/go-sql-driver/mysql",
 	"mymysql":  "github.com/ziutek/mymysql/godrv",
@@ -40,11 +40,35 @@ var commands = []*Command{
 	CmdSource,
 }
 
-func init() {
-	runtime.GOMAXPROCS(runtime.NumCPU())
-}
-
 func main() {
+
+	app := &cli.App{
+		Name:    "xormtool",
+		Version: version,
+		Usage:   "xormtool is a tool based xorm package",
+		Commands: []*cli.Command{
+			{
+				Name:    "complete",
+				Aliases: []string{"c"},
+				Usage:   "complete a task on the list",
+				Action: func(c *cli.Context) error {
+					return nil
+				},
+			},
+			ReverseCommand(),
+		},
+		Action: func(ctx *cli.Context) error {
+			return cli.ShowAppHelp(ctx)
+		},
+	}
+
+	//sort.Sort(cli.FlagsByName(app.Flags))
+	//sort.Sort(cli.CommandsByName(app.Commands))
+
+	if err := app.Run(os.Args); err != nil {
+		//log.Fatal(err)
+	}
+	return
 	// Check length of arguments.
 	args := os.Args[1:]
 	if len(args) < 1 {
@@ -62,14 +86,14 @@ func main() {
 	for _, comm := range commands {
 		if comm.Name() == args[0] && comm.Run != nil {
 			comm.Run(comm, args[1:])
-			exit()
+
 			return
 		}
 	}
 
 	fmt.Fprintf(os.Stderr, "xorm: unknown subcommand %q\nRun 'xorm help' for usage.\n", args[0])
 	setExitStatus(2)
-	exit()
+
 }
 
 var exitStatus = 0

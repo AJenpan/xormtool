@@ -19,8 +19,9 @@ import (
 
 var (
 	supportComment bool
-	GoLangTmpl     LangTmpl = LangTmpl{
-		template.FuncMap{"Mapper": mapper.Table2Obj,
+	GoLangTmpl     = &LangTmpl{
+		Funcs: template.FuncMap{
+			"Mapper":     mapper.Table2Obj,
 			"Type":       typestring,
 			"Tag":        tag,
 			"UnTitle":    unTitle,
@@ -28,8 +29,8 @@ var (
 			"getCol":     getCol,
 			"UpperTitle": upTitle,
 		},
-		formatGo,
-		genGoImports,
+		Formater:   formatGo,
+		GenImports: genGoImports,
 	}
 )
 
